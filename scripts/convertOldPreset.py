@@ -6,9 +6,15 @@ The new app's migratePreset() fetches this file and picks:
   - from usePresetStore:  every key present in Default_config.json
 
 Usage:
-  python3 scripts/convertOldPreset.py /path/to/old/web-mmd
+  python3 scripts/convertOldPreset.py /path/to/old/web-mmd [audio-file]
+
+If audio-file is given, it is embedded into audioFiles under the legacy
+musicName, so the MV plays out of the box (the legacy preset only had a
+YouTube URL, which the new player no longer supports).
 """
+import base64
 import json
+import mimetypes
 import os
 import sys
 
@@ -18,9 +24,10 @@ NEW_ROOT = os.path.dirname(HERE)
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: convertOldPreset.py <old web-mmd root>")
+        print("usage: convertOldPreset.py <old web-mmd root> [audio-file]")
         sys.exit(1)
     old_root = sys.argv[1]
+    audio_path = sys.argv[2] if len(sys.argv) > 2 else None
 
     with open(os.path.join(old_root, "public/presets/Default_data.json"), encoding="utf-8") as f:
         old_data = json.load(f)
@@ -36,7 +43,16 @@ def main():
 
     motion_files = {motion_name: old_data["motionFile"]}
     camera_files = {camera_name: old_data["cameraFile"]}
-    audio_files = {}  # legacy preset embeds no audio (YouTube URL only)
+
+    # The new player only consumes audioFiles[musicName] as a data URI.
+    # Legacy preset had no audio embedded, so optionally inline one here.
+    music_name = old_config["musicName"]
+    audio_files = {}
+    if audio_path:
+        mime = mimetypes.guess_type(audio_path)[0] or "audio/mpeg"
+        with open(audio_path, "rb") as f:
+            audio_uri = "data:" + mime + ";base64," + base64.b64encode(f.read()).decode("ascii")
+        audio_files[music_name] = audio_uri
 
     # New: pmxFiles = { models: {name: dataURI}, modelTextures: {folder: {path: dataURI}} }
     models = {}
@@ -77,7 +93,7 @@ def main():
     preset["run mode"] = 0  # PLAYER_MODE
     preset["camera mode"] = 0  # MOTION_FILE -> uses cameraFiles[camera]
     preset["musicURL"] = ""
-    preset["musicName"] = ""
+    preset["musicName"] = music_name
 
     # Copy over any config keys the new default also understands, mapping the ones
     # whose representation changed. Everything else stays at new defaults.
@@ -107,6 +123,7 @@ def main():
     print("  models:", list(models.keys()))
     print("  motionFiles:", list(motion_files.keys()))
     print("  cameraFiles:", list(camera_files.keys()))
+    print("  audioFiles:", list(audio_files.keys()))
     print("  size MB:", round(os.path.getsize(out_path) / 1024 / 1024, 2))
 
 
